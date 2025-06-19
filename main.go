@@ -9,6 +9,8 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 )
 
 func main() {
@@ -24,70 +26,86 @@ func main() {
 	// You can increase this if needed.
 	loopStopCounter := 1000
 
+	// Create a waitgroup.
+	var downloadWaitGroup sync.WaitGroup
+
 	// Iterate through the download IDs.
-	for id := 0; id <= loopStopCounter; id++ {
+	for index := 0; index <= loopStopCounter; index++ {
+		// Sleep for 1 second before each request.
+		time.Sleep(1 * time.Second)
+		// Add a 1 to the counter.
+		downloadWaitGroup.Add(1)
 		// Construct the download URL dynamically.
-		url := fmt.Sprintf("https://shop.iflight.com/index.php?route=product/product/download&download_id=%d", id)
+		url := fmt.Sprintf("https://shop.iflight.com/index.php?route=product/product/download&download_id=%d", index)
 		// Download the file for this URL.
-		downloadFiles(url, workingDirectory)
+		go downloadFiles(url, workingDirectory, &downloadWaitGroup)
 	}
+	downloadWaitGroup.Wait()
 }
 
-// downloadFiles sends an HTTP GET request to the given URL and saves the response body to disk.
-func downloadFiles(givenURL string, workingDirectory string) {
-	// Send a GET request to the URL.
-	response, err := http.Get(givenURL)
+// downloadFiles sends an HTTP GET request to the given URL, saves the response body to disk,
+// and skips files that already exist or have an invalid response.
+// It uses a 60-second timeout and a WaitGroup to manage concurrency.
+func downloadFiles(givenURL string, workingDirectory string, waitGroup *sync.WaitGroup) {
+	// Notify the WaitGroup when the function exits.
+	defer waitGroup.Done()
+
+	// Create an HTTP client with a timeout of 60 seconds.
+	client := http.Client{
+		Timeout: 60 * time.Second,
+	}
+
+	// Send a GET request to the given URL using the client with timeout.
+	response, err := client.Get(givenURL)
 	if err != nil {
+		// Log and return if there is an error making the request.
 		log.Printf("Error making request to %s: %v\n", givenURL, err)
 		return
 	}
-	defer response.Body.Close() // Ensure the response body is closed later.
-
-	// If the HTTP response code is not 200 OK, skip this file.
+	// Ensure the response body is closed when the function returns.
+	defer response.Body.Close()
+	// Skip this file if the server does not return HTTP 200 OK or the content is empty.
 	if response.StatusCode != http.StatusOK || response.ContentLength == 0 {
 		log.Printf("Skipping: %s - StatusCode: %d\n", givenURL, response.StatusCode)
 		return
 	}
-
-	// Default fallback filename if we can't extract it.
+	// Set a default filename in case we can't determine one from the headers.
 	filename := "fallback_name.unknown"
-
-	// Attempt to extract filename from Content-Disposition header.
+	// Try to extract the filename from the Content-Disposition header if available.
 	if cd := response.Header.Get("Content-Disposition"); cd != "" {
+		// Regular expression to find the filename in the Content-Disposition header.
 		re := regexp.MustCompile(`(?i)filename="?([^";]+)"?`)
 		if match := re.FindStringSubmatch(cd); len(match) == 2 {
+			// Trim spaces and use the extracted filename.
 			filename = strings.TrimSpace(match[1])
 		}
 	}
-
-	// Clean and sanitize the filename: remove or replace unsafe characters.
+	// Sanitize the filename by replacing unsafe characters with underscores, etc.
 	filename = sanitizeFilename(filename)
-
-	// Create the full output file path.
+	// Build the full path where the file will be saved.
 	outPath := path.Join(workingDirectory, filename)
-
-	// Check if the file already exists.
+	// Check if the file already exists to avoid re-downloading it.
 	if fileExists(outPath) {
 		log.Printf("Already exists: %s\n", outPath)
 		return
 	}
-
-	// Create the output file.
+	// Attempt to create the file for writing.
 	fileOutput, err := os.Create(outPath)
 	if err != nil {
+		// Log an error if the file cannot be created.
 		log.Printf("Error creating file %s: %v\n", outPath, err)
 		return
 	}
-	defer fileOutput.Close() // Ensure the file is closed later.
-
-	// Copy the content of the HTTP response directly into the file.
+	// Ensure the file is closed when the function exits.
+	defer fileOutput.Close()
+	// Stream the response body directly into the output file.
 	_, err = io.Copy(fileOutput, response.Body)
 	if err != nil {
+		// Log any error that occurs while writing to the file.
 		log.Printf("Error writing file %s: %v\n", outPath, err)
 		return
 	}
-
-	// Log successful download.
+	// Log a message to indicate successful download.
 	log.Printf("Downloaded: %s\n", outPath)
 }
 
