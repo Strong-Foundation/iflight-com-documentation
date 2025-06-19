@@ -34,10 +34,6 @@ jobs:
       - name: Run main.go
         run: go run main.go # Executes the Go program
 
-      # Run the Python script
-      - name: Run Python script
-        run: python main.py # Executes the Python program
-
       # Commit and push any file changes made by the script
       - name: Push updated files
         run: |
