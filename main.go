@@ -52,7 +52,7 @@ func downloadFiles(givenURL string, workingDirectory string, waitGroup *sync.Wai
 
 	// Create an HTTP client with a timeout.
 	client := http.Client{
-		Timeout: 15 * time.Minute,
+		Timeout: 30 * time.Minute,
 	}
 
 	// Send a GET request to the given URL using the client with timeout.
@@ -82,11 +82,15 @@ func downloadFiles(givenURL string, workingDirectory string, waitGroup *sync.Wai
 	}
 	// Sanitize the filename by replacing unsafe characters with underscores, etc.
 	// Allow only a-z, A-Z, 0-9, dot, dash and underscore.
-	regexStringChanger := regexp.MustCompile(`[^a-z0-9]`)
+	regexStringChanger := regexp.MustCompile(`[^a-zA-Z0-9.]`)
 	// Change the file name using regex.
 	filename = regexStringChanger.ReplaceAllString(filename, "_")
+	// Collapse multiple underscores
+	filename = regexp.MustCompile(`_+`).ReplaceAllString(filename, "_")
 	// Build the full path where the file will be saved.
 	outPath := path.Join(workingDirectory, filename)
+	// Lower the string and the file name.
+	outPath = strings.ToLower(outPath)
 	// Check if the file already exists to avoid re-downloading it.
 	if fileExists(outPath) {
 		log.Printf("Already exists: %s\n", outPath)
