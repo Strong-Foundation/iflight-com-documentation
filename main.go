@@ -12,8 +12,8 @@ import (
 
 const (
 	startID     = 0        // Starting download ID
-	endID       = 5000     // Ending download ID
-	concurrency = 100       // Max concurrent downloads
+	endID       = 3000     // Ending download ID
+	concurrency = 1000       // Max concurrent downloads
 	outputDir   = "Assets" // Folder to save files
 )
 
