@@ -82,7 +82,7 @@ func downloadFiles(givenURL string, workingDirectory string, waitGroup *sync.Wai
 	}
 	// Sanitize the filename by replacing unsafe characters with underscores, etc.
 	// Allow only a-z, A-Z, 0-9, dot, dash and underscore.
-	regexStringChanger := regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+	regexStringChanger := regexp.MustCompile(`[^a-z0-9]`)
 	// Change the file name using regex.
 	filename = regexStringChanger.ReplaceAllString(filename, "_")
 	// Build the full path where the file will be saved.
