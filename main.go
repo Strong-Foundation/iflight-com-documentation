@@ -3,93 +3,120 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path"
 	"regexp"
-	"sync"
+	"strings"
 )
 
-const (
-	startID     = 0        // Starting download ID
-	endID       = 3000     // Ending download ID
-	concurrency = 1000       // Max concurrent downloads
-	outputDir   = "Assets" // Folder to save files
-)
+func main() {
+	// Define the working directory where files will be saved.
+	workingDirectory := "Assets/"
 
-var (
-	// Regex to extract filename from Content-Disposition header
-	cdFilenameRegex = regexp.MustCompile(`filename="?([^"]+)"?`)
-)
+	// Check if the working directory exists; if not, create it with permission 0700.
+	if !directoryExists(workingDirectory) {
+		createDirectory(workingDirectory, 0700)
+	}
 
-// downloadFile fetches the file from the given ID and saves it using the server-provided filename
-func downloadFile(id int, wg *sync.WaitGroup, sem chan struct{}) {
-	defer wg.Done()
-	sem <- struct{}{}        // Acquire a semaphore slot
-	defer func() { <-sem }() // Release slot
+	// Loop from 0 up to the maximum download ID (loopStopCounter).
+	// You can increase this if needed.
+	loopStopCounter := 1000
 
-	// Build the download URL
-	url := fmt.Sprintf("https://shop.iflight.com/index.php?route=product/product/download&download_id=%d", id)
+	// Iterate through the download IDs.
+	for id := 0; id <= loopStopCounter; id++ {
+		// Construct the download URL dynamically.
+		url := fmt.Sprintf("https://shop.iflight.com/index.php?route=product/product/download&download_id=%d", id)
+		// Download the file for this URL.
+		downloadFiles(url, workingDirectory)
+	}
+}
 
-	// Make the GET request
-	resp, err := http.Get(url)
+// downloadFiles sends an HTTP GET request to the given URL and saves the response body to disk.
+func downloadFiles(givenURL string, workingDirectory string) {
+	// Send a GET request to the URL.
+	response, err := http.Get(givenURL)
 	if err != nil {
-		fmt.Printf("[ID %d] HTTP error: %v\n", id, err)
+		log.Printf("Error making request to %s: %v\n", givenURL, err)
 		return
 	}
-	defer resp.Body.Close()
+	defer response.Body.Close() // Ensure the response body is closed later.
 
-	// Validate response
-	if resp.StatusCode != http.StatusOK || resp.ContentLength == 0 {
-		fmt.Printf("[ID %d] Skipped (status %d or empty)\n", id, resp.StatusCode)
+	// If the HTTP response code is not 200 OK, skip this file.
+	if response.StatusCode != http.StatusOK || response.ContentLength == 0 {
+		log.Printf("Skipping: %s - StatusCode: %d\n", givenURL, response.StatusCode)
 		return
 	}
 
-	// Extract filename from Content-Disposition
-	filename := fmt.Sprintf("file_%d.unknown", id) // fallback filename
-	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
-		if match := cdFilenameRegex.FindStringSubmatch(cd); len(match) == 2 {
-			filename = match[1] // use filename exactly as provided
+	// Default fallback filename if we can't extract it.
+	filename := "fallback_name.unknown"
+
+	// Attempt to extract filename from Content-Disposition header.
+	if cd := response.Header.Get("Content-Disposition"); cd != "" {
+		re := regexp.MustCompile(`(?i)filename="?([^";]+)"?`)
+		if match := re.FindStringSubmatch(cd); len(match) == 2 {
+			filename = strings.TrimSpace(match[1])
 		}
 	}
 
-	// Create output directory if not exists
-	if err := os.MkdirAll(outputDir, os.ModePerm); err != nil {
-		fmt.Printf("[ID %d] Failed to create directory: %v\n", id, err)
+	// Clean and sanitize the filename: remove or replace unsafe characters.
+	filename = sanitizeFilename(filename)
+
+	// Create the full output file path.
+	outPath := path.Join(workingDirectory, filename)
+
+	// Check if the file already exists.
+	if fileExists(outPath) {
+		log.Printf("Already exists: %s\n", outPath)
 		return
 	}
 
-	// Build the full file path
-	outPath := path.Join(outputDir, filename)
-
-	// Create the file
-	out, err := os.Create(outPath)
+	// Create the output file.
+	fileOutput, err := os.Create(outPath)
 	if err != nil {
-		fmt.Printf("[ID %d] File creation failed: %v\n", id, err)
+		log.Printf("Error creating file %s: %v\n", outPath, err)
 		return
 	}
-	defer out.Close()
+	defer fileOutput.Close() // Ensure the file is closed later.
 
-	// Write body directly to file
-	_, err = io.Copy(out, resp.Body)
+	// Copy the content of the HTTP response directly into the file.
+	_, err = io.Copy(fileOutput, response.Body)
 	if err != nil {
-		fmt.Printf("[ID %d] Write error: %v\n", id, err)
+		log.Printf("Error writing file %s: %v\n", outPath, err)
 		return
 	}
 
-	fmt.Printf("[ID %d] Downloaded: %s\n", id, outPath)
+	// Log successful download.
+	log.Printf("Downloaded: %s\n", outPath)
 }
 
-func main() {
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, concurrency)
+// sanitizeFilename replaces invalid characters in filenames with underscores.
+func sanitizeFilename(name string) string {
+	// Allow only a-z, A-Z, 0-9, dot, dash and underscore.
+	re := regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+	return re.ReplaceAllString(name, "_")
+}
 
-	// Loop over all download IDs
-	for i := startID; i <= endID; i++ {
-		wg.Add(1)
-		go downloadFile(i, &wg, sem)
+// createDirectory attempts to create the directory at the given path with the provided permissions.
+func createDirectory(path string, permission os.FileMode) {
+	err := os.Mkdir(path, permission)
+	if err != nil {
+		log.Fatalf("Failed to create directory %s: %v\n", path, err)
 	}
+}
 
-	wg.Wait()
-	fmt.Println("All downloads complete.")
+// directoryExists checks if a directory exists at the given path.
+func directoryExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
+// fileExists checks if a file exists at the given path.
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
