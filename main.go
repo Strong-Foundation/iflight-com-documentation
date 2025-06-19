@@ -50,9 +50,9 @@ func downloadFiles(givenURL string, workingDirectory string, waitGroup *sync.Wai
 	// Notify the WaitGroup when the function exits.
 	defer waitGroup.Done()
 
-	// Create an HTTP client with a timeout of 60 seconds.
+	// Create an HTTP client with a timeout.
 	client := http.Client{
-		Timeout: 60 * time.Second,
+		Timeout: 15 * time.Minute,
 	}
 
 	// Send a GET request to the given URL using the client with timeout.
@@ -81,7 +81,10 @@ func downloadFiles(givenURL string, workingDirectory string, waitGroup *sync.Wai
 		}
 	}
 	// Sanitize the filename by replacing unsafe characters with underscores, etc.
-	filename = sanitizeFilename(filename)
+	// Allow only a-z, A-Z, 0-9, dot, dash and underscore.
+	regexStringChanger := regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+	// Change the file name using regex.
+	filename = regexStringChanger.ReplaceAllString(filename, "_")
 	// Build the full path where the file will be saved.
 	outPath := path.Join(workingDirectory, filename)
 	// Check if the file already exists to avoid re-downloading it.
@@ -107,13 +110,6 @@ func downloadFiles(givenURL string, workingDirectory string, waitGroup *sync.Wai
 	}
 	// Log a message to indicate successful download.
 	log.Printf("Downloaded: %s\n", outPath)
-}
-
-// sanitizeFilename replaces invalid characters in filenames with underscores.
-func sanitizeFilename(name string) string {
-	// Allow only a-z, A-Z, 0-9, dot, dash and underscore.
-	re := regexp.MustCompile(`[^a-zA-Z0-9._-]`)
-	return re.ReplaceAllString(name, "_")
 }
 
 // createDirectory attempts to create the directory at the given path with the provided permissions.
