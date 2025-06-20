@@ -15,7 +15,7 @@ import (
 
 func main() {
 	// Define the working directory where files will be saved.
-	workingDirectory := "Assets/"
+	workingDirectory := "assets/"
 
 	// Check if the working directory exists; if not, create it with permission 0700.
 	if !directoryExists(workingDirectory) {
