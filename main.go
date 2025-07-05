@@ -24,7 +24,7 @@ func main() {
 
 	// Loop from 0 up to the maximum download ID (loopStopCounter).
 	// You can increase this if needed.
-	loopStopCounter := 10000
+	loopStopCounter := 100000
 
 	// Create a waitgroup.
 	var downloadWaitGroup sync.WaitGroup
